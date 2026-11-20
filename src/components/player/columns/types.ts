@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
 
+import type { GameData } from "../../../ChessEditor";
 import type { StatsItem } from "../PositionsMoves";
 
 export interface ColumnContext {
   currentYear: number;
+  games: readonly GameData[];
 }
 
 export interface ColumnDefinition {

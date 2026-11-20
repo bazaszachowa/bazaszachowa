@@ -231,7 +231,7 @@ const PreparationPlayer = ({
                   <Box
                     sx={{ maxHeight: boardSize / 2, overflow: "auto" } as const}
                   >
-                    <PositionMoves doMove={doMove} stats={tree} />
+                    <PositionMoves doMove={doMove} games={games} stats={tree} />
                   </Box>
                   <Box
                     sx={{ maxHeight: boardSize / 2, overflow: "auto" } as const}

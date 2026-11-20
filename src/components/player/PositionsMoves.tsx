@@ -8,6 +8,7 @@ import {
 import { noop } from "es-toolkit";
 import { type HTMLProps, useMemo } from "react";
 
+import type { GameData } from "../../ChessEditor";
 import { useI18n } from "../../context/useI18n";
 
 import { type ColumnContext, prepareColumns, trendColumns } from "./columns";
@@ -27,11 +28,13 @@ interface MoveStats {
 
 interface PositionMovesProperties extends HTMLProps<HTMLDivElement> {
   readonly doMove?: (move: string) => void;
+  readonly games: readonly GameData[];
   readonly stats: StatsItem[];
 }
 
 const PositionMoves: React.FC<PositionMovesProperties> = ({
   doMove = noop,
+  games,
   stats,
   ...properties
 }) => {
@@ -40,8 +43,11 @@ const PositionMoves: React.FC<PositionMovesProperties> = ({
   const currentYear = new Date().getFullYear();
 
   const context = useMemo<ColumnContext>(
-    () => ({ currentYear }),
-    [currentYear],
+    () => ({
+      currentYear,
+      games: games,
+    }),
+    [currentYear, games],
   );
 
   const columns = trendColumns;
