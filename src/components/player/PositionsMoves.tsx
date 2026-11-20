@@ -1,4 +1,7 @@
 import {
+  Checkbox,
+  FormControlLabel,
+  FormGroup,
   Table,
   TableBody,
   TableCell,
@@ -6,13 +9,13 @@ import {
   TableRow,
 } from "@mui/material";
 import { noop } from "es-toolkit";
-import { type HTMLProps, useMemo } from "react";
+import { type HTMLProps, useMemo, useState } from "react";
 
 import type { GameData } from "../../ChessEditor";
 import { useI18n } from "../../context/useI18n";
+import { usePlayerPredictions } from "../../hooks/usePlayerPredictions";
 
 import { type ColumnContext, prepareColumns, trendColumns } from "./columns";
-import { usePlayerPredictions } from "../../hooks/usePlayerPredictions";
 import { createAIColumns } from "./columns/trendColumns";
 
 export interface StatsItem {
@@ -44,7 +47,15 @@ const PositionMoves: React.FC<PositionMovesProperties> = ({
 
   const currentYear = new Date().getFullYear();
 
-  const { predictions, loading, error } = usePlayerPredictions(games, stats);
+  const { error, loading, predictions } = usePlayerPredictions(games, stats);
+
+  // Domyślnie widoczne: Fα, Fβ i M2O
+  const [visibleColumnIds, setVisibleColumnIds] = useState<string[]>([
+    "alfa",
+    "beta",
+    "ai-game-share",
+  ]);
+
   const context = useMemo<ColumnContext>(
     () => ({ currentYear, games }),
     [currentYear, games],
@@ -55,10 +66,24 @@ const PositionMoves: React.FC<PositionMovesProperties> = ({
     [predictions],
   );
 
-  const prepared = useMemo(
-    () => prepareColumns(columns, stats, context),
-    [columns, stats, context],
+  // Tylko wybrane kolumny są przygotowywane i wyświetlane.
+  const visibleColumns = useMemo(
+    () => columns.filter((column) => visibleColumnIds.includes(column.id)),
+    [columns, visibleColumnIds],
   );
+
+  const prepared = useMemo(
+    () => prepareColumns(visibleColumns, stats, context),
+    [visibleColumns, stats, context],
+  );
+
+  const toggleColumn = (id: string, checked: boolean) => {
+    setVisibleColumnIds((current) =>
+      checked
+        ? [...current, id]
+        : current.filter((columnId) => columnId !== id),
+    );
+  };
 
   if (stats.length === 0) {
     return null;
@@ -66,6 +91,24 @@ const PositionMoves: React.FC<PositionMovesProperties> = ({
 
   return (
     <div {...properties}>
+      <FormGroup row>
+        {columns.map((column) => (
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={visibleColumnIds.includes(column.id)}
+                onChange={(event) =>
+                  toggleColumn(column.id, event.target.checked)
+                }
+                size="small"
+              />
+            }
+            key={column.id}
+            label={column.label}
+          />
+        ))}
+      </FormGroup>
+
       <Table className="colorful-table" id="stats">
         <TableHead>
           <TableRow>
@@ -74,7 +117,7 @@ const PositionMoves: React.FC<PositionMovesProperties> = ({
             <TableCell>%</TableCell>
             <TableCell>{t("latest")}</TableCell>
 
-            {columns.map((column) => (
+            {visibleColumns.map((column) => (
               <TableCell key={column.id}>{column.label}</TableCell>
             ))}
           </TableRow>
@@ -91,7 +134,8 @@ const PositionMoves: React.FC<PositionMovesProperties> = ({
               <TableCell>
                 {item.years.length > 0 ? Math.max(...item.years) : "—"}
               </TableCell>
-              {columns.map((column) => {
+
+              {visibleColumns.map((column) => {
                 const isAIColumn = column.id.startsWith("ai-");
 
                 return (

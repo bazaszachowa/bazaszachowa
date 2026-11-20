@@ -1,83 +1,107 @@
 import { useEffect, useState } from "react";
 
 import type { GameData } from "../ChessEditor";
-import type { PlayerPrediction } from "../models/predictor";
 import type { StatsItem } from "../components/player/PositionsMoves.tsx";
+import type { PlayerPrediction } from "../models/predictor";
 
 interface PredictionState {
-  predictions: Map<string, PlayerPrediction>;
+  error: null | string;
   loading: boolean;
-  error: string | null;
+  predictions: Map<string, PlayerPrediction>;
 }
 
-const initialState: PredictionState = {
-  predictions: new Map(),
-  loading: false,
+type PredictionWorkerResponse =
+  | {
+      error: string;
+      predictions?: never;
+    }
+  | {
+      error?: null;
+      predictions: readonly (readonly [string, PlayerPrediction])[];
+    };
+
+const createInitialState = (): PredictionState => ({
   error: null,
-};
+  loading: false,
+  predictions: new Map(),
+});
 
 export const usePlayerPredictions = (
   games: readonly GameData[],
   positions: readonly StatsItem[],
 ): PredictionState => {
-  const [state, setState] = useState(initialState);
+  const [state, setState] = useState<PredictionState>(createInitialState);
 
   useEffect(() => {
-    if (games.length === 0 || positions.length === 0) {
-      setState(initialState);
-      return;
-    }
-
-    const worker = new Worker(
-      new URL("../models/prediction.worker.ts", import.meta.url),
-      { type: "module" },
-    );
-
     let active = true;
+    let worker: undefined | Worker;
 
-    setState((previous) => ({
-      ...previous,
-      loading: true,
-      error: null,
-    }));
+    const handleMessage = (event: MessageEvent<PredictionWorkerResponse>) => {
+      if (!active) {
+        return;
+      }
 
-    worker.onmessage = ({ data }) => {
-      if (!active) return;
+      const { data } = event;
 
       if (data.error) {
         setState({
-          predictions: new Map(),
-          loading: false,
           error: data.error,
+          loading: false,
+          predictions: new Map(),
         });
       } else {
         setState({
-          predictions: new Map(data.predictions),
-          loading: false,
           error: null,
+          loading: false,
+          predictions: new Map(data.predictions),
         });
       }
 
-      worker.terminate();
+      worker?.terminate();
     };
 
-    worker.onerror = (event) => {
-      if (!active) return;
+    const handleError = (event: ErrorEvent) => {
+      if (!active) {
+        return;
+      }
 
       setState({
-        predictions: new Map(),
-        loading: false,
         error: event.message,
+        loading: false,
+        predictions: new Map(),
       });
 
-      worker.terminate();
+      worker?.terminate();
     };
 
-    worker.postMessage({ games, positions });
+    if (games.length === 0 || positions.length === 0) {
+      setState(createInitialState());
+    } else {
+      worker = new Worker(
+        new URL("../models/prediction.worker.ts", import.meta.url),
+        { type: "module" },
+      );
+
+      setState((previous) => ({
+        ...previous,
+        error: null,
+        loading: true,
+      }));
+
+      worker.addEventListener("message", handleMessage);
+      worker.addEventListener("error", handleError);
+
+      worker.postMessage({ games, positions });
+    }
 
     return () => {
       active = false;
-      worker.terminate();
+
+      if (worker) {
+        worker.removeEventListener("message", handleMessage);
+        worker.removeEventListener("error", handleError);
+        worker.terminate();
+      }
     };
   }, [games, positions]);
 

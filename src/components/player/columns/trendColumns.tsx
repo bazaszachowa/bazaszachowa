@@ -1,10 +1,10 @@
 import { countBy, flatMap, sumBy } from "es-toolkit";
 
+import type { PredictionMap } from "../playerPredictions";
 import type { StatsItem } from "../PositionsMoves";
 
 import { defineColumn } from "./columnFactory";
 import type { ColumnContext } from "./types";
-import type { PredictionMap } from "../playerPredictions";
 interface MoveStats {
   count: number;
   points: number;

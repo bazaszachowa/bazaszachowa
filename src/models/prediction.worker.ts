@@ -1,6 +1,5 @@
-import { calculatePlayerPredictions } from "../components/player/playerPredictions";
-
 import type { GameData } from "../ChessEditor";
+import { calculatePlayerPredictions } from "../components/player/playerPredictions";
 import type { StatsItem } from "../components/player/PositionsMoves";
 
 interface WorkerRequest {
@@ -8,9 +7,10 @@ interface WorkerRequest {
   positions: StatsItem[];
 }
 
+// eslint-disable-next-line unicorn/prefer-global-this
 const worker = self as DedicatedWorkerGlobalScope;
 
-worker.onmessage = ({ data }: MessageEvent<WorkerRequest>) => {
+worker.addEventListener("message", ({ data }: MessageEvent<WorkerRequest>) => {
   try {
     const predictions = calculatePlayerPredictions(data.games, data.positions);
 
@@ -22,6 +22,4 @@ worker.onmessage = ({ data }: MessageEvent<WorkerRequest>) => {
       error: error instanceof Error ? error.message : String(error),
     });
   }
-};
-
-export {};
+});
