@@ -79,7 +79,6 @@ const PZSzachCalculator = () => {
   const updateOpponent = useCallback(
     (index: number) => (value: SetStateAction<Opponent>) => {
       setOpponents((previous) =>
-        // eslint-disable-next-line sonarjs/no-nested-functions
         previous.map((opponent, currentIndex) => {
           if (currentIndex !== index) {
             return opponent;
