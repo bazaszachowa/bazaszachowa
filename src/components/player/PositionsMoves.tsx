@@ -12,6 +12,8 @@ import type { GameData } from "../../ChessEditor";
 import { useI18n } from "../../context/useI18n";
 
 import { type ColumnContext, prepareColumns, trendColumns } from "./columns";
+import { usePlayerPredictions } from "../../hooks/usePlayerPredictions";
+import { createAIColumns } from "./columns/trendColumns";
 
 export interface StatsItem {
   games: number;
@@ -42,15 +44,16 @@ const PositionMoves: React.FC<PositionMovesProperties> = ({
 
   const currentYear = new Date().getFullYear();
 
+  const { predictions, loading, error } = usePlayerPredictions(games, stats);
   const context = useMemo<ColumnContext>(
-    () => ({
-      currentYear,
-      games: games,
-    }),
+    () => ({ currentYear, games }),
     [currentYear, games],
   );
 
-  const columns = trendColumns;
+  const columns = useMemo(
+    () => [...trendColumns, ...createAIColumns(predictions)],
+    [predictions],
+  );
 
   const prepared = useMemo(
     () => prepareColumns(columns, stats, context),
@@ -88,13 +91,19 @@ const PositionMoves: React.FC<PositionMovesProperties> = ({
               <TableCell>
                 {item.years.length > 0 ? Math.max(...item.years) : "—"}
               </TableCell>
-
               {columns.map((column) => {
-                const key = column.transformKey ?? column.id;
+                const isAIColumn = column.id.startsWith("ai-");
 
                 return (
                   <TableCell key={column.id}>
-                    {column.calculate(item, index, prepared.get(key), context)}
+                    {isAIColumn && (loading || error)
+                      ? "—"
+                      : column.calculate(
+                          item,
+                          index,
+                          prepared.get(column.transformKey ?? column.id),
+                          context,
+                        )}
                   </TableCell>
                 );
               })}

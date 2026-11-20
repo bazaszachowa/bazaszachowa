@@ -1,15 +1,10 @@
 import { countBy, flatMap, sumBy } from "es-toolkit";
 
-import {
-  calculatePlayerPredictions,
-  type PredictionMap,
-} from "../playerPredictions";
 import type { StatsItem } from "../PositionsMoves";
 
 import { defineColumn } from "./columnFactory";
 import type { ColumnContext } from "./types";
-
-type AIValues = PredictionMap;
+import type { PredictionMap } from "../playerPredictions";
 interface MoveStats {
   count: number;
   points: number;
@@ -23,11 +18,6 @@ interface TrendValues {
 const SYSTEM_BASE = 0.5;
 const EPSILON = 0.1;
 const YEAR_BOUND = 10;
-
-const transformAI = (
-  rows: readonly StatsItem[],
-  context: ColumnContext,
-): AIValues => calculatePlayerPredictions(context.games, rows);
 
 const calcProbability = ({
   minYear,
@@ -172,47 +162,40 @@ export const trendColumns = [
     transformKey: "trends",
     visibleByDefault: true,
   }),
-  defineColumn<AIValues, number>({
-    calculate: (row, _index, values) =>
-      values.get(row.move)?.absolute.count ?? 0,
-    id: "ai-count",
-    label: "M1C",
-    render: (value) => value.toFixed(2),
-    transform: transformAI,
-    transformKey: "ai",
-    visibleByDefault: true,
-  }),
-
-  defineColumn<AIValues, number>({
-    calculate: (row, _index, values) =>
-      values.get(row.move)?.absolute.points ?? 0,
-    id: "ai-rate",
-    label: "M1P",
-    render: (value) => value.toFixed(2),
-    transform: transformAI,
-    transformKey: "ai",
-    visibleByDefault: true,
-  }),
-
-  defineColumn<AIValues, number>({
-    calculate: (row, _index, values) =>
-      values.get(row.move)?.percentage.gameShare ?? 0,
-    id: "ai-game-share",
-    label: "M2O",
-    render: (value) => renderPercentage(value * 100),
-    transform: transformAI,
-    transformKey: "ai",
-    visibleByDefault: true,
-  }),
-
-  defineColumn<AIValues, number>({
-    calculate: (row, _index, values) =>
-      values.get(row.move)?.percentage.pointScore ?? 0,
-    id: "ai-point-score",
-    label: "M2P",
-    render: (value) => renderPercentage(value * 100),
-    transform: transformAI,
-    transformKey: "ai",
-    visibleByDefault: true,
-  }),
 ];
+
+export const createAIColumns = (predictions: PredictionMap) => {
+  return [
+    defineColumn<undefined, number>({
+      calculate: (row) => predictions.get(row.move)?.absolute.count ?? 0,
+      id: "ai-count",
+      label: "M1C",
+      render: (value) => value.toFixed(2),
+      visibleByDefault: true,
+    }),
+
+    defineColumn<undefined, number>({
+      calculate: (row) => predictions.get(row.move)?.absolute.points ?? 0,
+      id: "ai-points",
+      label: "M1P",
+      render: (value) => value.toFixed(2),
+      visibleByDefault: true,
+    }),
+
+    defineColumn<undefined, number>({
+      calculate: (row) => predictions.get(row.move)?.percentage.gameShare ?? 0,
+      id: "ai-game-share",
+      label: "M2O",
+      render: (value) => renderPercentage(value * 100),
+      visibleByDefault: true,
+    }),
+
+    defineColumn<undefined, number>({
+      calculate: (row) => predictions.get(row.move)?.percentage.pointScore ?? 0,
+      id: "ai-point-score",
+      label: "M2P",
+      render: (value) => renderPercentage(value * 100),
+      visibleByDefault: true,
+    }),
+  ];
+};
