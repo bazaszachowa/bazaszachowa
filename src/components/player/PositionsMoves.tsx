@@ -49,7 +49,6 @@ const PositionMoves: React.FC<PositionMovesProperties> = ({
 
   const { error, loading, predictions } = usePlayerPredictions(games, stats);
 
-  // Domyślnie widoczne: Fα, Fβ i M2O
   const [visibleColumnIds, setVisibleColumnIds] = useState<string[]>([
     "alfa",
     "beta",
@@ -66,7 +65,6 @@ const PositionMoves: React.FC<PositionMovesProperties> = ({
     [predictions],
   );
 
-  // Tylko wybrane kolumny są przygotowywane i wyświetlane.
   const visibleColumns = useMemo(
     () => columns.filter((column) => visibleColumnIds.includes(column.id)),
     [columns, visibleColumnIds],
