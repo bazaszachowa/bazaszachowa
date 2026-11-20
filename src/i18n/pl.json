@@ -63,6 +63,7 @@
   "stockfish.best_move": "najlepszy ruch",
   "stockfish.eval": "ocena",
   "math.function": "funkcja",
+  "math.ai_model": "model AI",
   "footer.info": "Chętni mogą dorzucić się do hostingu",
   "footer.collection": "zrzutka",
   "bug.incorrect_notation": "nieprawidłowy zapis",

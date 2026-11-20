@@ -63,7 +63,7 @@
   "stockfish.best_move": "bester Zug",
   "stockfish.eval": "Bewertung",
   "math.function": "Funktion",
-  "math.functions": "Funktionen",
+  "math.ai_model": "AI-Modell",
   "math.consts": "Konstanten",
   "math.vars": "Variablen",
   "footer.info": "Interessierte können sich an den Hostingkosten beteiligen",

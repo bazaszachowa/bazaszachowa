@@ -27,6 +27,18 @@ const TrendFunctionExplanation = () => {
           <Markdown screen="math" section="beta" />
         </AccordionDetails>
       </Accordion>
+      <Accordion>
+        <AccordionSummary>{t("math.ai_model")} M1</AccordionSummary>
+        <AccordionDetails>
+          <Markdown screen="math" section="absolute" />
+        </AccordionDetails>
+      </Accordion>
+      <Accordion>
+        <AccordionSummary>{t("math.ai_model")} M2</AccordionSummary>
+        <AccordionDetails>
+          <Markdown screen="math" section="percentage" />
+        </AccordionDetails>
+      </Accordion>
     </Box>
   );
 };
