@@ -55,18 +55,18 @@ interface PreparedAbsoluteOutput {
 }
 
 interface PreparedDense {
-  bias: Float64Array;
+  bias: Float32Array;
   inputSize: number;
-  kernel: Float64Array;
+  kernel: Float32Array;
   outputSize: number;
 }
 
 interface PreparedGru {
-  inputBias: Float64Array;
+  inputBias: Float32Array;
   inputSize: number;
-  kernel: Float64Array;
-  recurrentBias: Float64Array;
-  recurrentKernel: Float64Array;
+  kernel: Float32Array;
+  recurrentBias: Float32Array;
+  recurrentKernel: Float32Array;
   units: number;
 }
 
@@ -107,7 +107,7 @@ const flattenMatrix = (
   matrix: Matrix,
   expectedRows: number,
   expectedColumns: number,
-): Float64Array => {
+): Float32Array => {
   if (
     matrix.length !== expectedRows ||
     matrix.some((row) => row.length !== expectedColumns)
@@ -117,7 +117,7 @@ const flattenMatrix = (
     );
   }
 
-  const result = new Float64Array(expectedRows * expectedColumns);
+  const result = new Float32Array(expectedRows * expectedColumns);
   let offset = 0;
 
   for (let row = 0; row < expectedRows; row++) {
@@ -147,7 +147,7 @@ const prepareDense = (
   }
 
   return {
-    bias: Float64Array.from(weights.bias),
+    bias: Float32Array.from(weights.bias),
     inputSize,
     kernel: flattenMatrix(weights.kernel, inputSize, outputSize),
     outputSize,
@@ -166,10 +166,10 @@ const prepareGru = (
   }
 
   return {
-    inputBias: Float64Array.from(weights.bias[0]),
+    inputBias: Float32Array.from(weights.bias[0]),
     inputSize,
     kernel: flattenMatrix(weights.kernel, inputSize, width),
-    recurrentBias: Float64Array.from(weights.bias[1]),
+    recurrentBias: Float32Array.from(weights.bias[1]),
     recurrentKernel: flattenMatrix(weights.recurrent_kernel, units, width),
     units,
   };
@@ -213,7 +213,7 @@ const percentageModel = prepareModel(percentageWeights);
 const runGru = (
   sequence: readonly ModelInput[],
   weights: PreparedGru,
-): Float64Array => {
+): Float32Array => {
   const {
     inputBias,
     inputSize,
@@ -225,11 +225,11 @@ const runGru = (
 
   const width = units * 3;
 
-  let state = new Float64Array(units);
-  let nextState = new Float64Array(units);
+  let state = new Float32Array(units);
+  let nextState = new Float32Array(units);
 
-  const inputProjection = new Float64Array(width);
-  const recurrentProjection = new Float64Array(width);
+  const inputProjection = new Float32Array(width);
+  const recurrentProjection = new Float32Array(width);
 
   for (const input of sequence) {
     if (input[0] === -999 && input[1] === -999 && input[2] === -999) {
@@ -289,7 +289,7 @@ const dense = (
   input: ArrayLike<number>,
   weights: PreparedDense,
   activation: "linear" | "relu" = "linear",
-): Float64Array => {
+): Float32Array => {
   const { bias, inputSize, kernel, outputSize } = weights;
 
   if (input.length !== inputSize) {
@@ -298,7 +298,7 @@ const dense = (
     );
   }
 
-  const output = Float64Array.from(bias);
+  const output = Float32Array.from(bias);
 
   for (let row = 0; row < inputSize; row++) {
     const value = input[row];
@@ -321,7 +321,7 @@ const dense = (
 const runHiddenLayers = (
   sequence: readonly ModelInput[],
   model: PreparedModel,
-): Float64Array => {
+): Float32Array => {
   const state = runGru(sequence, model.gru);
 
   return dense(state, model.dense, "relu");
