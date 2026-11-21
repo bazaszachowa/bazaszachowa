@@ -7,7 +7,7 @@ import "katex/dist/katex.min.css";
 
 import { useI18n } from "../../context/useI18n";
 
-const markdownFiles = import.meta.glob("/src/i18n/markdowns/**/*.md", {
+const markdownFiles = import.meta.glob<string>("/src/i18n/markdowns/**/*.md", {
   eager: true,
   import: "default",
   query: "?raw",
@@ -31,7 +31,7 @@ const Markdown = ({ screen, section = "main" }: Properties) => {
 
   const content = markdownFiles[path] ?? markdownFiles[fallbackPath];
 
-  if (!content) {
+  if (typeof content !== "string") {
     console.error(`Markdown file not found: ${path}`);
     return null;
   }
