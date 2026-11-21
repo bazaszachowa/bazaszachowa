@@ -1,5 +1,3 @@
-import { map } from "es-toolkit/compat";
-
 import absoluteWeightsJson from "./absolute.json";
 import percentageWeightsJson from "./percentage.json";
 
@@ -9,6 +7,7 @@ export interface AbsolutePrediction {
 }
 
 export type ModelInput = readonly [number, number, number];
+
 export interface PercentagePrediction {
   gameShare: number;
   pointScore: number;
@@ -24,7 +23,6 @@ interface AbsoluteOutputWeights {
   rate: DenseWeights;
   type: "absolute";
 }
-
 interface DenseWeights {
   bias: Vector;
   kernel: Matrix;
@@ -46,9 +44,40 @@ interface ModelWeights {
   output: AbsoluteOutputWeights | PercentageOutputWeights;
 }
 
-interface PercentageOutputWeights {
-  bias: Vector;
-  kernel: Matrix;
+interface PercentageOutputWeights extends DenseWeights {
+  type: "percentage";
+}
+
+interface PreparedAbsoluteOutput {
+  count: PreparedDense;
+  rate: PreparedDense;
+  type: "absolute";
+}
+
+interface PreparedDense {
+  bias: Float64Array;
+  inputSize: number;
+  kernel: Float64Array;
+  outputSize: number;
+}
+
+interface PreparedGru {
+  inputBias: Float64Array;
+  inputSize: number;
+  kernel: Float64Array;
+  recurrentBias: Float64Array;
+  recurrentKernel: Float64Array;
+  units: number;
+}
+
+interface PreparedModel {
+  dense: PreparedDense;
+  gru: PreparedGru;
+  output: PreparedAbsoluteOutput | PreparedPercentageOutput;
+}
+
+interface PreparedPercentageOutput {
+  dense: PreparedDense;
   type: "percentage";
 }
 
@@ -70,140 +99,250 @@ const sigmoid = (x: number): number => {
 const softplus = (x: number): number =>
   Math.max(x, 0) + Math.log1p(Math.exp(-Math.abs(x)));
 
-const vectorMatrix = (vector: readonly number[], matrix: Matrix): Vector => {
-  const outputSize = matrix[0]?.length ?? 0;
+/**
+ * Spłaszcza macierz w kolejności wierszowej.
+ * Wagi są przygotowywane jeden raz podczas inicjalizacji modułu.
+ */
+const flattenMatrix = (
+  matrix: Matrix,
+  expectedRows: number,
+  expectedColumns: number,
+): Float64Array => {
+  if (
+    matrix.length !== expectedRows ||
+    matrix.some((row) => row.length !== expectedColumns)
+  ) {
+    throw new Error(
+      `Invalid matrix shape. Expected ${expectedRows}x${expectedColumns}.`,
+    );
+  }
 
-  return Array.from({ length: outputSize }, (_, column) =>
-    vector.reduce((sum, value, row) => sum + value * matrix[row][column], 0),
-  );
-};
+  const result = new Float64Array(expectedRows * expectedColumns);
+  let offset = 0;
 
-const addVectors = (a: readonly number[], b: readonly number[]): Vector =>
-  a.map((value, index) => value + b[index]);
-
-const sliceVector = (
-  values: readonly number[],
-  start: number,
-  end: number,
-): Vector => values.slice(start, end);
-
-const dense = (
-  input: readonly number[],
-  weights: DenseWeights,
-  activation: "linear" | "relu" = "linear",
-): Vector => {
-  const output = weights.kernel[0].map((_, column) => {
-    let value = weights.bias[column];
-
-    for (const [row, element] of input.entries()) {
-      value += element * weights.kernel[row][column];
+  for (let row = 0; row < expectedRows; row++) {
+    for (let column = 0; column < expectedColumns; column++) {
+      result[offset++] = matrix[row][column];
     }
+  }
 
-    return activation === "relu" ? Math.max(0, value) : value;
-  });
-
-  return output;
+  return result;
 };
+
+const prepareDense = (
+  weights: DenseWeights,
+  expectedInputSize?: number,
+): PreparedDense => {
+  const inputSize = weights.kernel.length;
+  const outputSize = weights.kernel[0]?.length ?? 0;
+
+  if (
+    inputSize === 0 ||
+    outputSize === 0 ||
+    weights.kernel.some((row) => row.length !== outputSize) ||
+    weights.bias.length !== outputSize ||
+    (expectedInputSize !== undefined && inputSize !== expectedInputSize)
+  ) {
+    throw new Error("Invalid Dense weights shape");
+  }
+
+  return {
+    bias: Float64Array.from(weights.bias),
+    inputSize,
+    kernel: flattenMatrix(weights.kernel, inputSize, outputSize),
+    outputSize,
+  };
+};
+
+const prepareGru = (
+  weights: GruWeights,
+  units: number,
+  inputSize: number,
+): PreparedGru => {
+  const width = units * 3;
+
+  if (weights.bias[0].length !== width || weights.bias[1].length !== width) {
+    throw new Error("Invalid GRU bias shape");
+  }
+
+  return {
+    inputBias: Float64Array.from(weights.bias[0]),
+    inputSize,
+    kernel: flattenMatrix(weights.kernel, inputSize, width),
+    recurrentBias: Float64Array.from(weights.bias[1]),
+    recurrentKernel: flattenMatrix(weights.recurrent_kernel, units, width),
+    units,
+  };
+};
+
+const prepareModel = (weights: ModelWeights): PreparedModel => {
+  const gru = prepareGru(weights.gru, weights.gru_units, weights.input_size);
+
+  const denseLayer = prepareDense(weights.dense, weights.gru_units);
+
+  const output: PreparedModel["output"] =
+    weights.output.type === "absolute"
+      ? {
+          count: prepareDense(weights.output.count, denseLayer.outputSize),
+          rate: prepareDense(weights.output.rate, denseLayer.outputSize),
+          type: "absolute",
+        }
+      : {
+          dense: prepareDense(weights.output, denseLayer.outputSize),
+          type: "percentage",
+        };
+
+  return {
+    dense: denseLayer,
+    gru,
+    output,
+  };
+};
+
+const absoluteModel = prepareModel(absoluteWeights);
+const percentageModel = prepareModel(percentageWeights);
 
 /**
  * Keras GRU:
  * - gate order: z, r, h
  * - reset_after: true
- * - input bias and recurrent bias are stored separately
+ * - osobny input bias i recurrent bias
  *
- * Timesteps with [-999, -999, -999] are treated as padding.
+ * Padding [-999, -999, -999] jest pomijany.
  */
 const runGru = (
   sequence: readonly ModelInput[],
-  weights: GruWeights,
-  units: number,
-): Vector => {
-  let state = Array.from({ length: units }, () => 0);
+  weights: PreparedGru,
+): Float64Array => {
+  const {
+    inputBias,
+    inputSize,
+    kernel,
+    recurrentBias,
+    recurrentKernel,
+    units,
+  } = weights;
 
-  const inputBias = weights.bias[0];
-  const recurrentBias = weights.bias[1];
+  const width = units * 3;
+
+  let state = new Float64Array(units);
+  let nextState = new Float64Array(units);
+
+  const inputProjection = new Float64Array(width);
+  const recurrentProjection = new Float64Array(width);
 
   for (const input of sequence) {
-    if (input.every((value) => value === -999)) {
+    if (input[0] === -999 && input[1] === -999 && input[2] === -999) {
       continue;
     }
 
-    const inputProjection = vectorMatrix(input, weights.kernel);
-    const recurrentProjection = vectorMatrix(state, weights.recurrent_kernel);
+    inputProjection.set(inputBias);
 
-    const inputZ = sliceVector(inputProjection, 0, units);
-    const inputR = sliceVector(inputProjection, units, 2 * units);
-    const inputH = sliceVector(inputProjection, 2 * units, 3 * units);
+    for (let feature = 0; feature < inputSize; feature++) {
+      const value = input[feature];
+      const offset = feature * width;
 
-    const recurrentZ = sliceVector(recurrentProjection, 0, units);
-    const recurrentR = sliceVector(recurrentProjection, units, 2 * units);
-    const recurrentH = sliceVector(recurrentProjection, 2 * units, 3 * units);
+      for (let column = 0; column < width; column++) {
+        inputProjection[column] += value * kernel[offset + column];
+      }
+    }
 
-    const inputBiasZ = sliceVector(inputBias, 0, units);
-    const inputBiasR = sliceVector(inputBias, units, 2 * units);
-    const inputBiasH = sliceVector(inputBias, 2 * units, 3 * units);
+    recurrentProjection.set(recurrentBias);
 
-    const recurrentBiasZ = sliceVector(recurrentBias, 0, units);
-    const recurrentBiasR = sliceVector(recurrentBias, units, 2 * units);
-    const recurrentBiasH = sliceVector(recurrentBias, 2 * units, 3 * units);
+    for (let row = 0; row < units; row++) {
+      const value = state[row];
+      const offset = row * width;
 
-    const z = map(
-      addVectors(
-        addVectors(inputZ, inputBiasZ),
-        addVectors(recurrentZ, recurrentBiasZ),
-      ),
-      sigmoid,
-    );
+      for (let column = 0; column < width; column++) {
+        recurrentProjection[column] += value * recurrentKernel[offset + column];
+      }
+    }
 
-    const r = map(
-      addVectors(
-        addVectors(inputR, inputBiasR),
-        addVectors(recurrentR, recurrentBiasR),
-      ),
-      sigmoid,
-    );
+    for (let index = 0; index < units; index++) {
+      const z = sigmoid(inputProjection[index] + recurrentProjection[index]);
 
-    const candidate = inputH.map((value, index) => {
-      const recurrentValue =
-        (recurrentH[index] + recurrentBiasH[index]) * r[index];
+      const r = sigmoid(
+        inputProjection[units + index] + recurrentProjection[units + index],
+      );
 
-      return Math.tanh(value + inputBiasH[index] + recurrentValue);
-    });
+      /*
+       * reset_after=true:
+       * (recurrent_h + recurrent_bias_h) * r
+       */
+      const candidate = Math.tanh(
+        inputProjection[2 * units + index] +
+          recurrentProjection[2 * units + index] * r,
+      );
 
-    state = state.map(
-      (previous, index) =>
-        z[index] * previous + (1 - z[index]) * candidate[index],
-    );
+      nextState[index] = z * state[index] + (1 - z) * candidate;
+    }
+
+    const previousState = state;
+    state = nextState;
+    nextState = previousState;
   }
 
   return state;
 };
 
+const dense = (
+  input: ArrayLike<number>,
+  weights: PreparedDense,
+  activation: "linear" | "relu" = "linear",
+): Float64Array => {
+  const { bias, inputSize, kernel, outputSize } = weights;
+
+  if (input.length !== inputSize) {
+    throw new Error(
+      `Invalid Dense input size: expected ${inputSize}, got ${input.length}`,
+    );
+  }
+
+  const output = Float64Array.from(bias);
+
+  for (let row = 0; row < inputSize; row++) {
+    const value = input[row];
+    const offset = row * outputSize;
+
+    for (let column = 0; column < outputSize; column++) {
+      output[column] += value * kernel[offset + column];
+    }
+  }
+
+  if (activation === "relu") {
+    for (let index = 0; index < outputSize; index++) {
+      output[index] = Math.max(0, output[index]);
+    }
+  }
+
+  return output;
+};
+
 const runHiddenLayers = (
   sequence: readonly ModelInput[],
-  weights: ModelWeights,
-): Vector => {
-  const state = runGru(sequence, weights.gru, weights.gru_units);
+  model: PreparedModel,
+): Float64Array => {
+  const state = runGru(sequence, model.gru);
 
-  return dense(state, weights.dense, "relu");
+  return dense(state, model.dense, "relu");
 };
 
 const predictAbsolute = (
   sequence: readonly ModelInput[],
 ): AbsolutePrediction => {
-  if (absoluteWeights.output.type !== "absolute") {
+  if (absoluteModel.output.type !== "absolute") {
     throw new Error("Nieprawidłowy typ wyjścia modelu absolutnego");
   }
 
-  const hidden = runHiddenLayers(sequence, absoluteWeights);
+  const hidden = runHiddenLayers(sequence, absoluteModel);
+  const output = absoluteModel.output;
 
-  const predictedLogCount = softplus(
-    dense(hidden, absoluteWeights.output.count)[0],
-  );
+  const predictedLogCount = softplus(dense(hidden, output.count)[0]);
 
-  const predictedRate = sigmoid(dense(hidden, absoluteWeights.output.rate)[0]);
+  const predictedRate = sigmoid(dense(hidden, output.rate)[0]);
 
   const count = Math.max(0, Math.expm1(predictedLogCount));
+
   const rate = Math.max(0, Math.min(1, predictedRate));
 
   return {
@@ -215,12 +354,13 @@ const predictAbsolute = (
 const predictPercentage = (
   sequence: readonly ModelInput[],
 ): PercentagePrediction => {
-  if (percentageWeights.output.type !== "percentage") {
+  if (percentageModel.output.type !== "percentage") {
     throw new Error("Nieprawidłowy typ wyjścia modelu procentowego");
   }
 
-  const hidden = runHiddenLayers(sequence, percentageWeights);
-  const output = dense(hidden, percentageWeights.output);
+  const hidden = runHiddenLayers(sequence, percentageModel);
+
+  const output = dense(hidden, percentageModel.output.dense);
 
   return {
     gameShare: sigmoid(output[0]),

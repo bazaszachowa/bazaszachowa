@@ -2,24 +2,44 @@ import type { GameData } from "../ChessEditor";
 import { calculatePlayerPredictions } from "../components/player/playerPredictions";
 import type { StatsItem } from "../components/player/PositionsMoves";
 
-interface WorkerRequest {
-  games: GameData[];
-  positions: StatsItem[];
+interface PredictionWorkerRequest {
+  games: readonly GameData[];
+  positions: readonly StatsItem[];
+  requestId: number;
 }
 
-// eslint-disable-next-line unicorn/prefer-global-this
-const worker = self as DedicatedWorkerGlobalScope;
+type PredictionWorkerResponse =
+  | {
+      error: string;
+      requestId: number;
+    }
+  | {
+      predictions: readonly [string, import("./predictor").PlayerPrediction][];
+      requestId: number;
+    };
 
-worker.addEventListener("message", ({ data }: MessageEvent<WorkerRequest>) => {
-  try {
-    const predictions = calculatePlayerPredictions(data.games, data.positions);
+// eslint-disable-next-line sonarjs/post-message
+globalThis.addEventListener(
+  "message",
+  (event: MessageEvent<PredictionWorkerRequest>) => {
+    const { games, positions, requestId } = event.data;
 
-    worker.postMessage({
-      predictions: [...predictions.entries()],
-    });
-  } catch (error) {
-    worker.postMessage({
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-});
+    try {
+      const predictions = calculatePlayerPredictions(games, positions);
+
+      const response: PredictionWorkerResponse = {
+        predictions: [...predictions.entries()],
+        requestId,
+      };
+
+      globalThis.postMessage(response);
+    } catch (error) {
+      const response: PredictionWorkerResponse = {
+        error: error instanceof Error ? error.message : String(error),
+        requestId,
+      };
+
+      globalThis.postMessage(response);
+    }
+  },
+);

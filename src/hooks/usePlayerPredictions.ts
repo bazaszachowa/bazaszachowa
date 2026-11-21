@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { GameData } from "../ChessEditor";
-import type { StatsItem } from "../components/player/PositionsMoves.tsx";
+import type { StatsItem } from "../components/player/PositionsMoves";
 import type { PlayerPrediction } from "../models/predictor";
 
 interface PredictionState {
@@ -10,19 +10,25 @@ interface PredictionState {
   predictions: Map<string, PlayerPrediction>;
 }
 
+interface PredictionWorkerRequest {
+  games: readonly GameData[];
+  positions: readonly StatsItem[];
+  requestId: number;
+}
+
 type PredictionWorkerResponse =
   | {
       error: string;
-      predictions?: never;
+      requestId: number;
     }
   | {
-      error?: null;
-      predictions: readonly (readonly [string, PlayerPrediction])[];
+      predictions: readonly [string, PlayerPrediction][];
+      requestId: number;
     };
 
 const createInitialState = (): PredictionState => ({
   error: null,
-  loading: false,
+  loading: true,
   predictions: new Map(),
 });
 
@@ -32,77 +38,90 @@ export const usePlayerPredictions = (
 ): PredictionState => {
   const [state, setState] = useState<PredictionState>(createInitialState);
 
+  const workerReference = useRef<null | Worker>(null);
+  const requestIdReference = useRef(0);
+
   useEffect(() => {
-    let active = true;
-    let worker: undefined | Worker;
+    const worker = new Worker(
+      new URL("../models/prediction.worker.ts", import.meta.url),
+      { type: "module" },
+    );
+
+    workerReference.current = worker;
 
     const handleMessage = (event: MessageEvent<PredictionWorkerResponse>) => {
-      if (!active) {
+      const data = event.data;
+
+      if (data.requestId !== requestIdReference.current) {
         return;
       }
 
-      const { data } = event;
-
-      if (data.error) {
+      if ("error" in data) {
         setState({
           error: data.error,
           loading: false,
           predictions: new Map(),
         });
-      } else {
-        setState({
-          error: null,
-          loading: false,
-          predictions: new Map(data.predictions),
-        });
-      }
 
-      worker?.terminate();
-    };
-
-    const handleError = (event: ErrorEvent) => {
-      if (!active) {
         return;
       }
 
       setState({
-        error: event.message,
+        error: null,
+        loading: false,
+        predictions: new Map(data.predictions),
+      });
+    };
+
+    const handleError = (event: ErrorEvent) => {
+      setState({
+        error: event.message || "Błąd Workera",
         loading: false,
         predictions: new Map(),
       });
-
-      worker?.terminate();
     };
+
+    worker.addEventListener("message", handleMessage);
+    worker.addEventListener("error", handleError);
+
+    return () => {
+      worker.removeEventListener("message", handleMessage);
+      worker.removeEventListener("error", handleError);
+
+      worker.terminate();
+
+      if (workerReference.current === worker) {
+        workerReference.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const worker = workerReference.current;
+    const requestId = ++requestIdReference.current;
 
     if (games.length === 0 || positions.length === 0) {
       setState(createInitialState());
-    } else {
-      worker = new Worker(
-        new URL("../models/prediction.worker.ts", import.meta.url),
-        { type: "module" },
-      );
-
-      setState((previous) => ({
-        ...previous,
-        error: null,
-        loading: true,
-      }));
-
-      worker.addEventListener("message", handleMessage);
-      worker.addEventListener("error", handleError);
-
-      worker.postMessage({ games, positions });
+      return;
     }
 
-    return () => {
-      active = false;
+    if (!worker) {
+      return;
+    }
 
-      if (worker) {
-        worker.removeEventListener("message", handleMessage);
-        worker.removeEventListener("error", handleError);
-        worker.terminate();
-      }
+    setState((previous) => ({
+      ...previous,
+      error: null,
+      loading: true,
+    }));
+
+    const request: PredictionWorkerRequest = {
+      games,
+      positions,
+      requestId,
     };
+
+    worker.postMessage(request);
   }, [games, positions]);
 
   return state;
