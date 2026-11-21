@@ -89,8 +89,8 @@ $$
 $$
 \lambda =
 \begin{cases}
-1, & V=0 \land V \geq \frac{T}{d} \\
-\frac{T}{V \times d}, & \neg\left(V=0 \land V \geq \frac{T}{d}\right)
+1, & V=0 \lor V \geq \frac{T}{d} \\
+\frac{T}{V \times d}, & \neg\left(V=0 \lor V \geq \frac{T}{d}\right)
 \end{cases}
 $$
 
