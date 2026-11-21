@@ -9,7 +9,8 @@ import {
   TableRow,
 } from "@mui/material";
 import { noop } from "es-toolkit";
-import { type HTMLProps, useMemo, useState } from "react";
+import Cookies from "js-cookie";
+import { type HTMLProps, useEffect, useMemo, useState } from "react";
 
 import type { GameData } from "../../ChessEditor";
 import { useI18n } from "../../context/useI18n";
@@ -31,6 +32,30 @@ interface MoveStats {
   points: number;
 }
 
+const VISIBLE_COLUMNS_COOKIE = "position-moves-visible-columns";
+
+const DEFAULT_VISIBLE_COLUMNS = ["alfa", "beta", "ai-game-share"];
+
+const getVisibleColumns = (): string[] => {
+  const cookie = Cookies.get(VISIBLE_COLUMNS_COOKIE);
+
+  if (cookie === undefined) {
+    return DEFAULT_VISIBLE_COLUMNS;
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(cookie);
+
+    if (
+      Array.isArray(parsed) &&
+      parsed.every((item): item is string => typeof item === "string")
+    ) {
+      return parsed;
+    }
+  } catch {}
+
+  return DEFAULT_VISIBLE_COLUMNS;
+};
 interface PositionMovesProperties extends HTMLProps<HTMLDivElement> {
   readonly doMove?: (move: string) => void;
   readonly games: readonly GameData[];
@@ -49,11 +74,8 @@ const PositionMoves: React.FC<PositionMovesProperties> = ({
 
   const { error, loading, predictions } = usePlayerPredictions(games, stats);
 
-  const [visibleColumnIds, setVisibleColumnIds] = useState<string[]>([
-    "alfa",
-    "beta",
-    "ai-game-share",
-  ]);
+  const [visibleColumnIds, setVisibleColumnIds] =
+    useState<string[]>(getVisibleColumns);
 
   const context = useMemo<ColumnContext>(
     () => ({ currentYear, games }),
@@ -83,6 +105,12 @@ const PositionMoves: React.FC<PositionMovesProperties> = ({
     );
   };
 
+  useEffect(() => {
+    Cookies.set(VISIBLE_COLUMNS_COOKIE, JSON.stringify(visibleColumnIds), {
+      expires: 365,
+      sameSite: "Lax",
+    });
+  }, [visibleColumnIds]);
   if (stats.length === 0) {
     return null;
   }
